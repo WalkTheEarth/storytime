@@ -1,0 +1,25 @@
+# Flutter/Dart build artifacts
+**/build/
+**/.dart_tool/
+**/*.iml
+**/.idea/
+
+# Local python venv + caches for the reverse-engineering scripts
+work/venv/
+work/**/__pycache__/
+*.pyc
+
+# Extracted/decompiled third-party apps and binaries (never upload these)
+work/*
+!work/moto/
+work/moto/*
+!work/moto/test_moto_novel.py
+!work/moto/moto_flow.py
+!work/moto/login_public.pem
+*.apk
+*.xapk
+*.dex
+*.aab
+
+# Logs
+*.log
