@@ -1,4 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Required for API requests (release builds do not inherit this from
+         the debug/profile manifests). -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="storytime"
         android:name="${applicationName}"

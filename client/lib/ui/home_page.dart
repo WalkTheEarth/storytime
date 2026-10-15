@@ -32,9 +32,10 @@ class _HomePageState extends State<HomePage> {
       _results = const {};
     });
     try {
+      final errors = <String>[];
       if (storyCode) {
         // Story-code import: fan out to all sources, keep first hit each.
-        final books = await widget.registry.importStoryCode(q);
+        final books = await widget.registry.importStoryCode(q, errors: errors);
         setState(() {
           _results = {
             for (final b in books)
@@ -42,13 +43,16 @@ class _HomePageState extends State<HomePage> {
           };
         });
       } else {
-        final r = await widget.registry.searchAll(q);
+        final r = await widget.registry.searchAll(q, errors: errors);
         setState(() {
           _results = r;
         });
       }
       if (_results.isEmpty) {
-        _error = 'No results';
+        _error = errors.isEmpty
+            ? 'No results'
+            : 'No results — ${errors.length}/${widget.registry.sources.length} '
+                'sources failed: ${errors.first}';
       }
     } catch (e) {
       _error = '$e';

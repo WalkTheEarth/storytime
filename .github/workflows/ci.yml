@@ -12,6 +12,10 @@ jobs:
   analyze-and-test:
     name: Analyze & test
     runs-on: ubuntu-latest
+    # The Flutter project lives in client/.
+    defaults:
+      run:
+        working-directory: client
     steps:
       - uses: actions/checkout@v4
 
@@ -26,11 +30,13 @@ jobs:
       - name: Static analysis
         run: flutter analyze
 
-      # Includes the live integration test (test/integration_test.dart) that
-      # verifies all four novel sources end-to-end against their production
-      # APIs with the story codes in TEST STORY CODES ALL APPS.txt.
-      - name: Unit & integration tests
-        run: flutter test
+      - name: Unit & widget tests
+        run: flutter test test/widget_test.dart
+
+      # Live end-to-end check of all four novel sources against their
+      # production APIs using the story codes in TEST STORY CODES ALL APPS.txt.
+      - name: Live integration tests
+        run: flutter test test/integration_test.dart
 
   build-apk:
     name: Build release APK
@@ -50,10 +56,21 @@ jobs:
           cache: true
 
       - name: Install dependencies
+        working-directory: client
         run: flutter pub get
 
       - name: Build APK
+        working-directory: client
         run: flutter build apk --release
+
+      # The app does nothing without network access — fail the build if the
+      # INTERNET permission ever drops out of the release manifest.
+      - name: Verify APK has INTERNET permission
+        run: |
+          AAPT=$(ls "$ANDROID_HOME"/build-tools/*/aapt | tail -1)
+          "$AAPT" dump permissions client/build/app/outputs/flutter-apk/app-release.apk \
+            | tee /tmp/perms.txt
+          grep -q 'android.permission.INTERNET' /tmp/perms.txt
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4

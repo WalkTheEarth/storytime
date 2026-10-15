@@ -1,17 +1,17 @@
-# storytime
+# storytime (client)
 
-A new Flutter project.
+The Flutter app of the StoryTime project — a multi-source novel reader with
+four service adapters, story-code import, and a chapter reader.
 
-## Getting Started
+See the [repository root README](../README.md) for build instructions, usage,
+and testing, and [API.md](../API.md) for the API reference behind the
+adapters.
 
-This project is a starting point for a Flutter application.
+Quick start:
 
-A few resources to get you started if this is your first Flutter project:
-
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+```bash
+flutter pub get
+flutter test test/widget_test.dart        # hermetic tests
+flutter test test/integration_test.dart   # live tests vs all 4 services
+flutter build apk --release
+```
