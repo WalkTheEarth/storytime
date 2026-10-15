@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:storytime/core/models.dart';
 import 'package:storytime/core/registry.dart';
 import 'package:storytime/core/source.dart';
 import 'package:storytime/main.dart';
 import 'package:storytime/ui/home_page.dart';
+import 'package:storytime/ui/settings_page.dart';
 
 /// In-memory source so widget tests never touch the network.
 class _FakeSource extends NovelSource {
@@ -43,8 +45,16 @@ Widget _home(NovelSource source) => MaterialApp(
     );
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    themeModeNotifier.value = ThemeMode.system;
+  });
+
   testWidgets('app renders search page', (tester) async {
     await tester.pumpWidget(const StoryTimeApp());
+    await tester.pumpAndSettle();
     expect(find.text('StoryTime'), findsOneWidget);
     expect(find.text('Search or paste a story code…'), findsOneWidget);
   });
@@ -104,6 +114,43 @@ void main() {
     await tester.tap(find.byIcon(Icons.search));
     await tester.pumpAndSettle();
     expect(find.text('Search across 4 novel services'), findsOneWidget);
+  });
+
+  testWidgets('settings screen switches to dark mode', (tester) async {
+    await tester.pumpWidget(_home(_FakeSource(result: SearchResult(books: const []))));
+
+    // Open settings from the home app bar.
+    await tester.tap(find.byIcon(Icons.settings));
+    await tester.pumpAndSettle();
+    expect(find.byType(SettingsPage), findsOneWidget);
+    expect(find.text('System default'), findsOneWidget);
+    expect(find.text('Dark'), findsOneWidget);
+
+    // Pick dark and verify the app-wide notifier flips.
+    await tester.tap(find.text('Dark'));
+    await tester.pumpAndSettle();
+    expect(themeModeNotifier.value, ThemeMode.dark);
+
+    // Pick light, verify, then system again.
+    await tester.tap(find.text('Light'));
+    await tester.pumpAndSettle();
+    expect(themeModeNotifier.value, ThemeMode.light);
+    await tester.tap(find.text('System default'));
+    await tester.pumpAndSettle();
+    expect(themeModeNotifier.value, ThemeMode.system);
+  });
+
+  testWidgets('theme choice persists across app restarts', (tester) async {
+    await tester.pumpWidget(const StoryTimeApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.settings));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Dark'));
+    await tester.pumpAndSettle();
+
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('theme_mode'), 'dark');
   });
 
   test('registry has all four sources', () {

@@ -76,46 +76,28 @@ class GoodNovelSource extends NovelSource {
 
   @override
   Future<List<Chapter>> chapters(String bookId) async {
-    final all = <Chapter>[];
-    var current = 1;
-    while (current <= 100) {
-      // /hwyc/chapter/list returns data as a list of volumes.
-      final data = await _post('/hwyc/chapter/list', {
-        'bookId': bookId,
-        'current': current,
-        'size': 100,
-      });
-      final volumes = (data as List? ?? const []).cast<Map<String, dynamic>>();
-      if (volumes.isEmpty) break;
-      for (final v in volumes) {
-        final chs = (v['chapters'] as List? ?? const []).cast<Map<String, dynamic>>();
-        for (final c in chs) {
-          all.add(Chapter(
+    // The API returns the COMPLETE volume list in one response — paging
+    // params are ignored (verified live with a 246-chapter book: page 1 ==
+    // page 2). A loop here would just add duplicates.
+    final data = await _post('/hwyc/chapter/list', {
+      'bookId': bookId,
+      'current': 1,
+      'size': 10000,
+    });
+    final volumes = (data as List? ?? const []).cast<Map<String, dynamic>>();
+    var i = 0;
+    return [
+      for (final v in volumes)
+        for (final c in (v['chapters'] as List? ?? const [])
+            .cast<Map<String, dynamic>>())
+          Chapter(
             sourceId: id,
             bookId: bookId,
             id: '${c['id']}',
-            title: (c['chapterName'] ?? '').toString(),
+            title: (c['chapterName'] ?? 'Chapter ${i + 1}').toString(),
             locked: c['unlock'] != true,
-            index: c['seoChapterName'] != null ? null : null,
-          ));
-        }
-      }
-      final last = volumes.last['chapters'] as List? ?? const [];
-      if (last.length < 100) break;
-      current++;
-    }
-    // Re-number sequentially (the API does not expose a global index).
-    var i = 0;
-    return [
-      for (final c in all)
-        Chapter(
-          sourceId: c.sourceId,
-          bookId: c.bookId,
-          id: c.id,
-          title: c.title,
-          locked: c.locked,
-          index: ++i,
-        )
+            index: ++i,
+          ),
     ];
   }
 

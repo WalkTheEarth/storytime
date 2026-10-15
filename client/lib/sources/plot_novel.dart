@@ -109,42 +109,39 @@ class PlotNovelSource extends NovelSource {
     );
   }
 
+  /// The chapter list endpoint returns the COMPLETE list in one response —
+  /// paging params are ignored (verified live; the current catalog tops out
+  /// at 20 chapters per book, matching the server's window size).
+  Future<List<Map<String, dynamic>>> _fullList(String bookId) async {
+    final result = await _get('/app/chapter/chapterListByNovel', {
+      'novelId': bookId,
+      'pageNo': '1',
+      'pageSize': '100',
+    });
+    return (result['chapters'] as List? ?? const [])
+        .cast<Map<String, dynamic>>();
+  }
+
   @override
   Future<List<Chapter>> chapters(String bookId) async {
-    final all = <Chapter>[];
-    var page = 1;
-    while (page <= 50) {
-      final result = await _get('/app/chapter/chapterListByNovel', {
-        'novelId': bookId,
-        'pageNo': '$page',
-        'pageSize': '50',
-      });
-      final list = (result['chapters'] as List? ?? const []).cast<Map<String, dynamic>>();
-      for (final c in list) {
-        all.add(Chapter(
+    final list = await _fullList(bookId);
+    return [
+      for (final c in list)
+        Chapter(
           sourceId: id,
           bookId: bookId,
           id: '${c['id']}',
           title: (c['chapterTitle'] ?? 'Chapter ${c['chapterNo']}').toString(),
           locked: c['unlocked'] == false && c['izFree'] != 1,
           index: c['chapterNo'] as int?,
-        ));
-      }
-      if (list.length < 50) break;
-      page++;
-    }
-    return all;
+        ),
+    ];
   }
 
   @override
   Future<ChapterContent> chapterContent(Chapter chapter) async {
-    // Content is embedded in the chapter list; refetch to find this chapter.
-    final result = await _get('/app/chapter/chapterListByNovel', {
-      'novelId': chapter.bookId,
-      'pageNo': '1',
-      'pageSize': '200',
-    });
-    final list = (result['chapters'] as List? ?? const []).cast<Map<String, dynamic>>();
+    // Content is embedded in the (complete) chapter list; refetch to find it.
+    final list = await _fullList(chapter.bookId);
     final match = list.cast<Map<String, dynamic>?>().firstWhere(
           (c) => '${c!['id']}' == chapter.id,
           orElse: () => null,

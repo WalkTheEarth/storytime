@@ -19,6 +19,7 @@ endpoint reference.
 - 📚 **Full reading flow** — book details, table of contents, chapter reader
 - 🔐 **No account needed** — guest sessions are created automatically
   (including MotoNovel's RSA/AES wrapped guest login, implemented in pure Dart)
+- 🌗 **Settings with dark mode** — system, light, or dark; persisted
 - 🚫 **No tracking, no ads, no analytics**
 
 ## Supported services
@@ -65,8 +66,12 @@ workflow run's artifacts), and attaches it to a GitHub Release for `v*` tags.
 - Type any keyword and hit the search icon (or Enter) to **search** all four
   services.
 - Type a **story code** and tap *Import story code* to resolve it directly.
-- If something goes wrong (offline, service down), the error is shown under
-  the search bar instead of an empty result list.
+- The gear icon opens **Settings** — switch between system/light/dark theme.
+- If something goes wrong (offline, service down, VIP-locked chapter), the
+  error is shown under the search bar or on the page instead of silently
+  showing nothing.
+- Note: Novel Master short stories are no longer served by that service's
+  API; only its long novels are readable (see [API.md](API.md) §3).
 
 ## Tests
 

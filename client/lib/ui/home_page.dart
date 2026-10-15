@@ -4,6 +4,7 @@ import '../core/models.dart';
 import '../core/registry.dart';
 import '../core/source.dart';
 import 'book_page.dart';
+import 'settings_page.dart';
 
 /// Search + story-code import across all sources.
 class HomePage extends StatefulWidget {
@@ -70,7 +71,18 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('StoryTime')),
+      appBar: AppBar(
+        title: const Text('StoryTime'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings),
+            tooltip: 'Settings',
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => const SettingsPage(),
+            )),
+          ),
+        ],
+      ),
       body: Column(
         children: [
           Padding(

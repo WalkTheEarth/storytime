@@ -8,8 +8,14 @@ Test story codes (`TEST STORY CODES ALL APPS.txt`):
 |---|---|---|---|---|
 | MotoNovel | `com.motonovel.reader` | `https://motonovel-api.bkneng.com` | `599002` | verified end-to-end |
 | GoodNovel | — | `https://www.goodnovel.com` | `R67281` | verified end-to-end (web API, no sign needed) |
-| Novel Master | `com.master.novel` | `https://api.novel-master.com` | `538822` | reads verified; writes need app-injected common params |
-| PlotNovel | — | `https://server.read.plotread.com/plot-novel` | `684996` | verified end-to-end (no sign needed) |
+| Novel Master | `com.master.novel` | `https://api.novel-master.com` | `538822` | long novels readable end-to-end (see §3.1) |
+| PlotNovel | — | `https://server.read.plotread.com/plot-novel` | `684996` | verified end-to-end via `/app/*` + tourist login |
+
+> **Catalog note (2026-10-15):** all four services migrated their catalogs.
+> Old story codes/ids may be dead (e.g. GoodNovel `R67281` and the earlier
+> Novel Master id space). Codes in the table were re-verified after the
+> migration. Novel Master's `/novel/detail` and the `code:0` envelope are
+> gone; §3 describes the current API.
 
 Test scripts: `work/moto/test_moto_novel.py` (full CLI), `work/moto/moto_flow.py`
 (login flow variants). The Flutter client in `client/` implements all four.
@@ -167,14 +173,16 @@ content endpoints work unauthenticated on the web host.
 
 ### 2.1 Story code → book
 
-`POST /hwyc/book/searchSuggest` body `{"query":"R67281","limit":5}`:
+Two search endpoints exist:
 
-```
-{code:0, data:[{categoryID:36, contentID:"R67281", name:"The Alpha King's Rejected Mate", …}]}
-```
+- `POST /hwyc/book/search` body `{"keyword":"…","current":1,"size":15}` →
+  `data.records[]` with `bookId`, `bookName`, `pseudonym`, `cover`,
+  `introduction`, `chapterCount`. **This is the one the client uses.**
+- `POST /hwyc/book/searchSuggest` body `{"query":"…","limit":5}` →
+  `data[]` with `contentID` (string code). Worked before the catalog
+  migration; may return non-`data` responses for dead codes now.
 
-Story codes resolve through plain `query` search. `POST /hwyc/book/search`
-returns 404 — only `searchSuggest` exists.
+Story codes resolve through plain keyword search on either endpoint.
 
 ### 2.2 Book detail
 
@@ -182,12 +190,14 @@ returns 404 — only `searchSuggest` exists.
 `8438145034220524`), `vipFlag` (2 = has paid chapters), `tagNames`, prices,
 `chapterCount` (~7134 free), etc.
 
-### 2.3 Chapter list
+### 2.3 Chapter list (complete, single call)
 
-`POST /hwyc/chapter/list` body `{"bookId":<bookId>,"offset":0,"limit":1000}` →
-`data[]` = chapter ids. Note: `data` is a **list** here, not a map.
-Chapter ids are sequential for a book (each next chapter −1 in id order as
-returned; verify via detail).
+`POST /hwyc/chapter/list` body `{"bookId":<bookId>,"current":1,"size":10000}`
+→ `data[]` = **volumes**, each `{chapters:[{id, chapterName, unlock, type,
+charge, seoChapterName, …}]}`.
+
+**Paging is ignored** — one call returns the complete list (verified with a
+246-chapter book: page 1 == page 2). Do not loop; you'll get duplicates.
 
 ### 2.4 Chapter content
 
@@ -199,119 +209,140 @@ returned; verify via detail).
 
 ## 3. Novel Master (`com.master.novel` → `api.novel-master.com`)
 
-Base: `https://api.novel-master.com` (non-prod hosts exist:
-`api-test.`, `api-uat.`, `api-fat.`, `api-pre.` — same paths). JSON POST/GET,
-headers: `Content-Type: application/json; charset=utf-8`,
-`Accept: application/json`, `User-Agent: okhttp/4.8.0`.
-Responses: `{code:0, msg:"success", data:…}` (`code!=0` = error; account
-endpoints use `message` + `success:true` and code `050000` = bad nonce).
+Base: `https://api.novel-master.com`. **Current API (verified 2026-10-15)**
+— JSON POST only, envelope `{ret, msg, data}` with `ret: 1` = OK:
 
-Pagination: `page` (1-based), `size`.
+```
+POST /novel/search  {q, offset}      -> {ret:1, data:{list:[…]}}
+POST /novel/chapter {id: chapterId}  -> {ret:1, data:{novel, chapter, is_vip}}
+```
 
-### 3.1 Sign (headers only)
+The older `code:0`/`data` envelope (`{page,size,search}` search, `next:1`
+chapter paging, ids like `68714`/`6142472`) is **gone** — those routes now
+return `-102 Request parameter error`.
 
-`x-sign`, `x-timestamp`, `x-nonce` — **headers only, never query params**.
-Sign covers URI path + timestamp + nonce + `MD5(body)`. The nonce comes from
-`/account/nonce` and is reusable across many calls. Read endpoints below work
-without any sign; sign is required for account/write operations.
+### 3.1 Error codes
 
-### 3.2 Nonce + token
+| ret | msg | meaning |
+|---|---|---|
+| 1 | OK | success |
+| -102 / -103 | Request parameter error / Failed to parse parameters | wrong body shape |
+| -4001 | 小说不存在 | novel not found |
+| -4002 | 章节不存在 | chapter/content not found |
 
-- `POST /account/nonce` body `{"nonceType":1}` → `data` = nonce string (hex uuid).
-- `GET /account/tokens` (nonce header) → `data` = JWT bearer token for
-  `/account/*` calls.
+`msg` is often Chinese; match on `ret`. HTTP may return a bare `null` body
+(e.g. dead `/novel/detail`).
 
-### 3.3 Search (story code works as plain query)
+### 3.2 Search
 
-`POST /novel/search` body `{"page":1,"size":20,"search":"538822"}` →
+`POST /novel/search` body `{"q":"<keyword or story code>","offset":0}` →
 `data.list[]`:
 
 ```
-id:68714, novel_code:"538822", title, author_name, novel_cover,
-chapter_count:177, first_chapter_id:6142472, last_chapter_id:6142648,
-is_finished:false, source:2, tags, vip flags
+id, title, content (600-char teaser), type:"vip", likes, member{name},
+cover{url}, imgs, tags[{id,name}], ct, is_long_story, is_ongoing,
+is_adult_only, first_chapter_id (long novels only), is_self_book
 ```
 
-### 3.4 Chapter detail (content)
+Story codes work as `q`. Page size is fixed at 20; `offset` = (page-1)*20.
+Numeric book ids do **not** resolve as `q` — cache search items instead.
 
-`POST /novel/chapter` body `{"id":<chapter_id>}` →
+### 3.3 Chapter content
+
+`POST /novel/chapter` body `{"id": <chapterId>}` →
 
 ```
-{chapter_id, novel_id, paragraph:"<content>", is_free, is_vip,
- prev_chapter_id, next_chapter_id}
+data.novel    {id, title, first_chapter_id, is_long_story, member, cover, tags, …}
+data.chapter  {id, pid (novel id), num, name, paragraphs:[{content}], ut, type,
+               is_unlock, price}
+data.is_vip
 ```
 
-Paging: `{"id":<id>,"next":1}` → next chapter (works; `novel_id` param is
-rejected with 500). Note `paragraph` is HTML with `<p>` separators.
+Locked chapters return `is_unlock:false` and no usable paragraphs.
 
-### 3.5 Other verified read endpoints
+### 3.4 Rebuilding the full table of contents
 
-- `GET /novel/hot/list?limit=10` → hot novels (same list shape as search).
-- `GET /novel/category` → `[{categoryId:33,name:"Romance"}, …]` (12 categories:
-  Romance 33, Werewolf 102, Mafia 103, Billionaire 104, Fantasy 105,
-  Science Fiction 106, Teen Fiction 107, LGBTQ 108, Horror 109, New Adult 110,
-  Short Story 111, Young Adult 112).
-- `POST /novel/category/novel` body `{"categoryId":33,"page":1,"size":20}` → list.
-- `POST /novel/tag/novel` body `{"tagId":42,"page":1,"size":20}` → list.
-- `GET /novel/home/section/list?page=0&size=10` → home sections
-  (`HomeSectionData`: novel + rank arrays).
+The server **withholds the chapter list from this app version** (the RN app
+reads `novel.chapters`, which is never sent — the app itself tells users to
+"upgrade to the latest version to view … long novels"). However chapter ids
+are allocated in **contiguous per-novel blocks**: chapter 1 has id
+`novel.first_chapter_id`, `num = id - first + 1`, and the block ends where
+the next id's `pid` differs (or errors -4001 for deleted novels). So:
 
-### 3.6 Endpoints that exist but need app-injected params
+1. `first = novel.first_chapter_id` (from search)
+2. Exponential + binary search for the largest `k` with
+   `chapter(first+k).pid == novel.id` (~2·log₂(count) requests)
+3. ToC = ids `first..first+k`, titles `Chapter N` (fetch a chapter for its
+   real `name` if needed)
 
-- `POST /novel/detail` `{"id":…}` → **500** (requires guest registration context).
-- `POST /account/register_guest` → **500** (needs common params injected by the
-  app's request wrapper — not reproduced).
-- `POST /account/guest/login` → 500; `/account/novel/read/record` and
-  `/account/novel/read/tag` → **401** (need the JWT from `/account/tokens`).
-- `POST /novel/bookshelf` `{"novelId":…}` → **404** (not deployed at this path).
+Verified: book `1047515664` → block `91213..91221` (9 chapters);
+`538822`'s book → block `116977..116988` (12 chapters, ch.6+ VIP).
+
+### 3.5 Short novels are not readable
+
+`is_long_story:false` books have **no readable content** on this API:
+`/novel/detail` returns a bare `null` for every id/param variant
+(`{pid: <novelId>}` is the only accepted shape — the RN app sends exactly
+that). Search `content` is only a 600-char teaser.
+
+### 3.6 Legacy/other endpoints
+
+- `POST /novel/detail {pid: <novelId>}` → `null` (dead).
+- `POST /novel/chapter {pid: <novelId>, chapter: N}` → always chapter 1
+  (`chapter` is ignored; also 1-paragraph previews).
+- Older account/nonce/JWT flows (`/account/nonce`, `/account/tokens`) date
+  from the retired `code:0` API and were not re-verified.
 
 ---
 
 ## 4. PlotNovel (`server.read.plotread.com/plot-novel`)
 
-Base: `https://server.read.plotread.com/plot-novel`. No sign, no login needed
-for content. Common query params on every call: `platform=1`, `appType=1`,
-`deviceType=2`. Responses: `{code:0, msg, data}`.
+Base: `https://server.read.plotread.com/plot-novel`. **Current app API**
+(verified 2026-10-15) lives under `/app/*` and needs a tourist
+session; the older non-`/app` routes still exist but return **401** for
+tourist tokens (they require a real user login — not reproduced).
 
-### 4.1 Search (story code works as bookName)
+### 4.1 Tourist login
 
-`POST /search?bookName=684996&pageSize=20&pageNum=1&platform=1&appType=1&deviceType=2`
-(JSON body with the same fields also accepted) →
+`POST /app/touristLogin` (form, **charset=UTF-8 required**):
+`email=<any>&code=123456&deviceId=<any>` → `result.token` (JWT, ~60 min).
+Send as `Authorization: <token>` (no Bearer prefix).
 
-```
-data.list:[{bookId:56817, bookName:"Alpha's Secret Luna", authorName, coverUrl,
-            category Name, total words/chapters, …}], total:1
-```
+### 4.2 Search (story code works as keyword)
 
-### 4.2 Chapter list
+`GET /app/novel/searchNovel?keyword=…&pageNo=1&pageSize=20` →
+`result.records[]`: `{id, name (Chinese), enName, authorName, coverImage,
+introduction, chapterNum, status}`. Story codes resolve via keyword.
 
-`POST /chapter/queryChapter?bookId=56817&pageNum=1&pageSize=20&platform=1&appType=1&deviceType=2`
-→ `data.list[]` of `{chapterId, chapterTitle, isVip, price, …}`, `total` (e.g.
-144). Paginated.
+### 4.3 Chapter list + content (complete, single call)
 
-### 4.3 Chapter content
+`GET /app/chapter/chapterListByNovel?novelId=…&pageNo=1&pageSize=100` →
+`result.chapters[]` of `{id, chapterNo, chapterTitle, chapterContent
+(inline full text), unlocked, izFree, …}`.
 
-`POST /chapter/content?chapterId=1164553&bookId=56817&platform=1&appType=1&deviceType=2`
-→ `data.chapterText` (full text, `\n` separated).
+**The list is complete in one response** — `pageNo`/`pageSize` are ignored
+(hard window of 20; current catalog books are ≤20 chapters, matching
+`chapterNum` from search). One call gives the whole book with inline text.
 
-### 4.4 Full list with inline content
-
-`POST /chapter/getChapterList?bookId=56817&pageNum=1&pageSize=1000&platform=1&appType=1&deviceType=2`
-→ complete chapter list **including chapterText** for each chapter — one call
-for the whole book.
-
-### 4.5 Home feeds
+### 4.4 Other `/app/*` routes (from the Flutter snapshot; not all tested)
 
 ```
-POST /home/getHomeBanner?positionId=2&platform=1&appType=1&deviceType=2
-POST /home/getDailyRecommend?pageNum=1&pageSize=6&platform=1&appType=1&deviceType=2
-POST /home/getGuessYouLike?pageNum=1&pageSize=6&platform=1&appType=1&deviceType=2
+/app/novel/categories  /app/novel/categoryList  /app/novel/otherPage
+/app/novel/page  /app/novel/randomRecommend  /app/novel/topList
+/app/chapter/unlockChapter  /app/read/addRecord  /app/read/bookshelfList
+/app/read/listRecord  /app/read/delRecords  /app/read/batchOperate
+/app/read/operateNovel  /app/user/userInfo  /app/user/bindEmail
+/app/user/cancelAccount  /app/login  /app/sendCode
+/app/feedback  /app/purchase/google/createOrder  /app/purchase/google/verify
+/app/recharge/configList
 ```
 
-### 4.6 Login-gated (needs session; not required for reading)
+### 4.5 Legacy non-`/app` routes (401 for tourists)
 
-`POST /user/bookshelf/list?pageNum=1&pageSize=10&platform=1&appType=1&deviceType=2`
-and other `/user/*` routes.
+`/chapter/queryChapter`, `/chapter/content`, `/chapter/getChapterList`,
+`/search`, `/home/*`, `/user/*` — the pre-migration API. Endpoints answer,
+but reject tourist tokens (`401` with Bearer or raw token); they likely
+require a real registered account.
 
 ---
 
@@ -321,10 +352,10 @@ and other `/user/*` routes.
 
 | Adapter | Flow used |
 |---|---|
-| `moto_novel.dart` | guest login (RSA public-op + AES-CBC in Dart) → signed `indexV2` → `catalogues` → `h5/chapter` |
-| `good_novel.dart` | `searchSuggest` → `book/detail` → `chapter/list` → `chapter/detail` |
-| `novel_master.dart` | `search` → `chapter` (`{"id":…}`), `next:1` paging |
-| `plot_novel.dart` | `search` → `queryChapter` → `content` (or `getChapterList`) |
+| `moto_novel.dart` | guest login (RSA public-op + AES-CBC in Dart) → signed `indexV2` → `catalogues` (complete list) → `h5/chapter` |
+| `good_novel.dart` | `/hwyc/book/search` → `/hwyc/chapter/list` (single complete call) → `chapter/detail` |
+| `novel_master.dart` | `{q,offset}` search → contiguous-id-block binary search for the full ToC → `/novel/chapter {id}` per chapter |
+| `plot_novel.dart` | tourist login → `searchNovel` → `chapterListByNovel` (complete list with inline text) |
 
 Story-code import (`client/lib/core/registry.dart`) tries each source's plain
 search with the code, since all four services resolve story codes via search.
